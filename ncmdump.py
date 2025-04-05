@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-__author__ = 'qyh'
-__date__ = '2018/10/16 9:22'
-
+from multiprocessing import cpu_count
+import threading
 import binascii
 import struct
 import base64
 import json
+import time
 import os
 from Crypto.Cipher import AES
-
+# pip install pycryptodome
 
 def dump(file_path):
     #十六进制转字符串
@@ -61,8 +61,9 @@ def dump(file_path):
     image_size = f.read(4)
     image_size = struct.unpack('<I', bytes(image_size))[0]
     image_data = f.read(image_size)
-    file_name = f.name.split("/")[-1].split(".ncm")[0] + '.' + meta_data['format']
-    m = open(os.path.join(os.path.split(file_path)[0], file_name), 'wb')
+    # file_name = f.name.split("/")[-1].split(".ncm")[0] + '.' + meta_data['format']
+    file_name = os.path.splitext(os.path.split(f.name)[1])[0] + '.' + meta_data['format']
+    m = open(os.path.join(os.getcwd(), 'unlock/' + file_name), 'wb')
     chunk = bytearray()
     while True:
         chunk = bytearray(f.read(0x8000))
@@ -78,8 +79,87 @@ def dump(file_path):
     return file_name
 
 
+class Dumper(threading.Thread):
+    def __init__(self, fpath, basket):
+        super().__init__()
+        self._fpath = fpath
+        self._basket = basket
+    
+    def run(self):
+        try:
+            dump(self._fpath)
+        except:
+            pass
+        finally:
+            self._basket[self._fpath] = 2
+
+
+def upperPrint(s: str):
+    column = os.get_terminal_size().columns
+    print('\r' + ' ' * (column - 1), end='', flush=True)
+    print('\r' + s, flush=True)
+
+
+def printBar(now:int, total:int, threads:int):
+    size = os.get_terminal_size()
+    size_columns = size.columns - 1
+    text_end = '  threads:{}  {}/{}'.format(threads, now, total)
+    percent:float = now / total
+    bar_size = size_columns - len(text_end)
+    bar_text_end = ']{}%/100%'.format(round(percent * 100, 2))
+    bar_len = bar_size - len(bar_text_end) - 1
+    bar_text_main = ''
+    for i in range(int(bar_len * percent)):
+        if i == int(bar_len * percent) - 1:
+            bar_text_main += '>'
+        else:
+            bar_text_main += '='
+    for i in range(bar_len - int(bar_len * percent)):
+        bar_text_main += ' '
+    bar_text = '\r[{}{}{}'.format(bar_text_main, bar_text_end, text_end)
+    print(bar_text, end='', flush=True)
+
+
+def main():
+    dirs = os.listdir()
+    musicFiles = dict()
+    for i in dirs:
+        if os.path.isfile(i):
+            if os.path.splitext(i)[1] == '.ncm':
+                musicFiles[os.path.abspath(i)] = 0
+    totalCount = len(musicFiles)
+    if totalCount == 0:
+        print('\033[33m未找到需要解密的文件 nothing to do...\033[0m')
+        input('按下回车继续...')
+        return
+    process = [0, 0, 0]
+    if not os.path.exists('./unlock'):
+        os.mkdir('./unlock')
+    maxCount = cpu_count()
+    while True:
+        count = 0
+        tmp = None
+        for key in musicFiles:
+            if musicFiles[key] == 1:
+                count += 1
+            if count < maxCount and musicFiles[key] == 0:
+                upperPrint(f'解密中...\t{key}')
+                musicFiles[key] = 1
+                Dumper(key, musicFiles).start()
+                count += 1
+        fcount = 0
+        for key in musicFiles:
+            if musicFiles[key] == 2:
+                fcount += 1
+        process[0], process[1], process[2] = fcount, totalCount, count
+        printBar(fcount, totalCount, count)
+        if fcount == totalCount:
+            break
+        time.sleep(0.5)
+        
+    print('\n\033[32m解密完成，存放在unlock目录中\033[0m')
+    input('按下回车继续...')
+
+
 if __name__ == '__main__':
-    file_list = ['陈芳语 - 爱你.ncm', '李翊君 - 雨蝶.ncm']
-    for file in file_list:
-        filepath = "F:\CloudMusic\\"+file
-        dump(filepath)
+    main()
